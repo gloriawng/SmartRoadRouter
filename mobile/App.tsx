@@ -35,6 +35,21 @@ type Place = {
   longitude: string;
 };
 
+function isRouteResult(value: unknown): value is RouteResult {
+  if (typeof value !== "object" || value === null) return false;
+  const result = value as Record<string, unknown>;
+  return (
+    typeof result.origin === "string" &&
+    typeof result.destination === "string" &&
+    Array.isArray(result.nodes) &&
+    typeof result.distance_km === "number" &&
+    typeof result.estimated_travel_time_seconds === "number" &&
+    typeof result.average_road_risk === "number" &&
+    typeof result.weather_severity === "number" &&
+    typeof result.objective_cost_seconds === "number"
+  );
+}
+
 const PLACES: Place[] = [
   { label: "Uptown Waterloo", latitude: "43.4643", longitude: "-80.5204" },
   { label: "Waterloo East", latitude: "43.4490", longitude: "-80.4750" },
@@ -118,7 +133,10 @@ export default function App() {
             : `Request failed (${response.status}).`;
         throw new Error(message);
       }
-      setRoute(body as RouteResult);
+      if (!isRouteResult(body)) {
+        throw new Error("The API returned an invalid route response.");
+      }
+      setRoute(body);
     } catch (requestError) {
       setError(
         requestError instanceof Error

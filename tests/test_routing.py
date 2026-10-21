@@ -84,8 +84,16 @@ class RoutingTests(unittest.TestCase):
         thread.start()
         base_url = f"http://127.0.0.1:{server.server_port}"
         try:
-            with urlopen(f"{base_url}/health") as response:
+            health_request = Request(
+                f"{base_url}/health",
+                headers={"Origin": "http://localhost:8081"},
+            )
+            with urlopen(health_request) as response:
                 self.assertEqual(response.status, 200)
+                self.assertEqual(
+                    response.headers["Access-Control-Allow-Origin"],
+                    "http://localhost:8081",
+                )
                 self.assertEqual(json.load(response), {"status": "healthy"})
 
             request = Request(
@@ -105,6 +113,48 @@ class RoutingTests(unittest.TestCase):
                 body = json.load(response)
                 self.assertEqual(response.status, 200)
                 self.assertIn("objective_cost_seconds", body)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+    def test_http_options_preflight(self) -> None:
+        server = ThreadingHTTPServer(("127.0.0.1", 0), RouterRequestHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        request = Request(
+            f"http://127.0.0.1:{server.server_port}/route",
+            headers={
+                "Origin": "http://localhost:8081",
+                "Access-Control-Request-Method": "POST",
+            },
+            method="OPTIONS",
+        )
+        try:
+            with urlopen(request) as response:
+                self.assertEqual(response.status, 204)
+                self.assertEqual(
+                    response.headers["Access-Control-Allow-Origin"],
+                    "http://localhost:8081",
+                )
+                self.assertIn("POST", response.headers["Access-Control-Allow-Methods"])
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+    def test_http_rejects_untrusted_browser_origin(self) -> None:
+        server = ThreadingHTTPServer(("127.0.0.1", 0), RouterRequestHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        request = Request(
+            f"http://127.0.0.1:{server.server_port}/health",
+            headers={"Origin": "https://example.com"},
+        )
+        try:
+            with self.assertRaises(HTTPError) as response:
+                urlopen(request)
+            self.assertEqual(response.exception.code, 403)
         finally:
             server.shutdown()
             server.server_close()

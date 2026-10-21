@@ -22,7 +22,7 @@ python -m unittest discover -s tests -v
 python -m src.api.main
 ```
 
-The server listens only on `127.0.0.1:8000`. If PowerShell prevents virtual
+The API listens on port `8000`. If PowerShell prevents virtual
 environment activation, run the venv's Python directly instead:
 
 ```powershell
@@ -32,6 +32,60 @@ environment activation, run the venv's Python directly instead:
 
 Open <http://127.0.0.1:8000/health> to check the server. The interactive route
 API is described below.
+
+## Android and web app (Expo Go)
+
+The `mobile/` app is a React Native + Expo client. Use Expo Go to run it on an
+Android phone, or run the same interface in a web browser with Expo's web
+target. Expo Go is a mobile app; web development runs in a browser using
+React Native Web. Use Node.js 24.3+ LTS (or another version supported by the
+Expo SDK) and npm.
+
+Start the backend in one terminal from the repository root:
+
+```powershell
+python -m src.api.main
+```
+
+Start the app in another terminal:
+
+```powershell
+cd mobile
+npm install
+npm run start
+```
+
+Install Expo Go from Google Play and scan the development QR code with Expo Go
+to use a physical Android phone. To launch an installed Android emulator
+instead, use `npm run android`. To run the browser version:
+
+```powershell
+npm run web
+```
+
+The app defaults to `http://10.0.2.2:8000` on Android (the Android Emulator's
+host-machine address) and `http://127.0.0.1:8000` on web. For a physical phone,
+copy `mobile/.env.example` to `mobile/.env`, set `EXPO_PUBLIC_API_URL` to the
+computer's LAN IPv4 address, restart Expo, and keep the phone and computer on
+the same trusted Wi-Fi network. For example:
+
+```dotenv
+EXPO_PUBLIC_API_URL=http://192.168.1.23:8000
+```
+
+The backend binds to all network interfaces so a phone on the LAN can reach it.
+Allow Python through Windows Firewall on a **private network** if prompted.
+This demo API has no authentication; do not expose it to the public internet
+or an untrusted network. Browser requests from localhost are allowed by
+default. If the web app is served from another origin, configure its exact
+origin with `CORS_ORIGINS` before starting the backend (for example,
+`$env:CORS_ORIGINS = "http://192.168.1.23:8081"`). Expo Go's native requests
+do not use browser CORS.
+
+The screen includes route endpoints, manual weather inputs, quicker/balanced/
+safer priority choices, and route results. Its location choices and route data
+are illustrative, matching the backend's small synthetic network. Real GPS,
+maps, live weather, and 511 events are not connected yet.
 
 ## Prototype API
 
@@ -107,7 +161,8 @@ coverage return HTTP 422.
 
 ### Phase 5 — Client and deployment
 
-- Add a map UI and route comparison visualization.
+- [x] Add an Android-first Expo Go app and browser-based Expo web client.
+- [ ] Add a map UI and route comparison visualization.
 - Add persistence, caching, observability, and deployment configuration when
   the data and service requirements are known.
 - Reassess API framework, authentication, rate limits, and operational safety
@@ -150,6 +205,10 @@ library.
 
 ```text
 SmartRoadRouter/
+├── mobile/                 # Expo Go Android app and Expo web client
+│   ├── App.tsx
+│   ├── app.json
+│   └── package.json
 ├── src/
 │   ├── api/
 │   │   └── main.py

@@ -6,6 +6,7 @@ import json
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
+from urllib.parse import urlsplit
 
 from src.routing.engine import (
     LocationOutsideDemoError,
@@ -19,12 +20,26 @@ _MAX_REQUEST_BYTES = 16_384
 
 class RouterRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
+        if not self._origin_is_allowed():
+            self._send_json(403, {"error": "Origin is not allowed."})
+            return
         if self.path == "/health":
             self._send_json(200, {"status": "healthy"})
             return
         self._send_json(404, {"error": "Not found."})
 
+    def do_OPTIONS(self) -> None:
+        if not self._origin_is_allowed():
+            self._send_json(403, {"error": "Origin is not allowed."})
+            return
+        self.send_response(204)
+        self._send_cors_headers()
+        self.end_headers()
+
     def do_POST(self) -> None:
+        if not self._origin_is_allowed():
+            self._send_json(403, {"error": "Origin is not allowed."})
+            return
         if self.path != "/route":
             self._send_json(404, {"error": "Not found."})
             return
@@ -63,8 +78,41 @@ class RouterRequestHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        self._send_cors_headers()
         self.end_headers()
         self.wfile.write(body)
+
+    def _send_cors_headers(self) -> None:
+        origin = self.headers.get("Origin")
+        if origin:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def _origin_is_allowed(self) -> bool:
+        origin = self.headers.get("Origin")
+        if origin is None:
+            return True
+
+        configured_origins = {
+            configured.strip().rstrip("/")
+            for configured in os.environ.get("CORS_ORIGINS", "").split(",")
+            if configured.strip()
+        }
+        if origin.rstrip("/") in configured_origins:
+            return True
+
+        try:
+            parsed_origin = urlsplit(origin)
+        except ValueError:
+            return False
+        return (
+            parsed_origin.scheme in {"http", "https"}
+            and parsed_origin.hostname in {"localhost", "127.0.0.1", "::1"}
+            and parsed_origin.username is None
+            and parsed_origin.password is None
+        )
 
     def log_message(self, format_string: str, *args: Any) -> None:
         print(f"{self.address_string()} - {format_string % args}")
@@ -72,8 +120,9 @@ class RouterRequestHandler(BaseHTTPRequestHandler):
 
 def main() -> None:
     port = int(os.environ.get("PORT", "8000"))
-    server = ThreadingHTTPServer(("127.0.0.1", port), RouterRequestHandler)
-    print(f"SmartRoadRouter API listening at http://127.0.0.1:{port}")
+    host = os.environ.get("HOST", "0.0.0.0")
+    server = ThreadingHTTPServer((host, port), RouterRequestHandler)
+    print(f"SmartRoadRouter API listening at http://{host}:{port}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
