@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "name": "SmartRoadRouter",
+    "slug": "smart-road-router",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "smartroadrouter",
+    "android": {
+      "package": "com.smartroadrouter.app"
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}
