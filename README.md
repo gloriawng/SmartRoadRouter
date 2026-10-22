@@ -1,236 +1,245 @@
 # SmartRoadRouter
 
-SmartRoadRouter is a prototype for comparing a quick road route with one that
-accounts for winter-weather risk. The first version runs locally with Python's
-standard library and a small synthetic Waterloo-area road network. It needs no
-external data downloads or API keys.
+SmartRoadRouter is a **real-road trip-planning beta** for the Waterloo–
+Collingwood corridor. It can search for places, use the Android device's
+current location, request a driving route from a locally hosted
+OpenStreetMap/OSRM road network, show current weather at the endpoints, and
+hand directions off to Google Maps.
 
-> **Prototype limitation:** The included road network and risk values are
-> illustrative, not live road or weather data. Do not use its routes for real
-> travel or safety decisions.
+## What it does—and does not—do
 
-## Run the prototype on Windows
+- **Real road geometry:** `/route` uses the local OSRM service and Ontario
+  OpenStreetMap road extract. It does not fall back to the synthetic graph if
+  the local router is unavailable.
+- **Place search and weather:** searches and current endpoint conditions use
+  Open-Meteo services. Live weather failure is shown in the app and does not
+  get replaced with made-up conditions.
+- **Driving navigation:** the app opens Google Maps for driving directions.
+  Google Maps calculates its own route, which may differ from the preview.
+- **Not a safety-rated winter router:** the route preview is an ordinary
+  driving route. Current weather is context only; it is not used to calculate
+  a safety score. There is no live traffic, road-closure, collision, plowing,
+  or road-surface feed. This app is not a substitute for Ontario 511, official
+  weather alerts, road signs, or driver judgment.
 
-Python 3.11 or newer is recommended. No Conda environment or third-party
-packages are needed for this prototype.
+Use it as an experimental trip-planning aid, not as a safety guarantee or
+primary navigation system. The app and backend have not been validated for
+emergency, commercial, or safety-critical use.
+
+## Location and privacy
+
+Place-search text is sent to Open-Meteo's geocoding service. When you plan a
+route, the selected coordinates go to the API you configured, the OSRM server
+you host, and Open-Meteo for endpoint weather. If you open Google Maps, those
+coordinates are also sent to Google. The app does not intentionally store
+location history, but the API host, network, or external providers may process
+requests under their own policies.
+
+## Requirements
+
+- Windows 10/11 64-bit.
+- Docker Desktop with the Linux container engine enabled.
+- Python 3.11 or newer.
+- Node.js 24 LTS and npm.
+- Expo Go on an Android phone, or an Android emulator with Expo Go installed.
+- Internet access for initial road-data download, place search, weather, and
+  Google Maps navigation.
+
+Preparing the Ontario road network downloads an approximately 1 GB PBF file
+and creates additional routing data. Processing time, disk use, and memory
+depend on the machine. The local OSRM service must stay running while routes
+are requested.
+
+## First-time setup on Windows
+
+Run PowerShell commands from the repository root.
+
+### 1. Prepare the self-hosted road router
 
 ```powershell
-# From the project root
-py -3.11 -m venv .venv
+docker info
+.\routing\osrm\prepare.ps1
+docker compose -f routing/osrm/compose.yaml up -d
+```
+
+The script downloads Geofabrik's Ontario OpenStreetMap extract and runs the
+OSRM car-profile preparation steps. The extract is ignored by Git and remains
+on your machine. Verify the local router responds:
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:5000/route/v1/driving/-80.5204,43.4643;-80.2169,44.5011?overview=false"
+```
+
+The response should contain `"code": "Ok"`. If preparation fails for lack of
+memory or disk, use a machine with more resources or prepare a smaller,
+appropriately licensed regional extract before continuing.
+
+### 2. Start the API
+
+In a second PowerShell window:
+
+```powershell
+py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m unittest discover -s tests -v
 python -m src.api.main
 ```
 
-The API listens on port `8000`. If PowerShell prevents virtual
-environment activation, run the venv's Python directly instead:
+The API listens on port 8000 and uses OSRM at `http://127.0.0.1:5000` by
+default. Check <http://127.0.0.1:8000/health>. If PowerShell blocks activation,
+use `.\.venv\Scripts\python.exe` in place of `python`.
+
+### 3. Start the Android app
+
+In a third PowerShell window:
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
-.\.venv\Scripts\python.exe -m src.api.main
-```
-
-Open <http://127.0.0.1:8000/health> to check the server. The interactive route
-API is described below.
-
-## Android and web app (Expo Go)
-
-The `mobile/` app is a React Native + Expo client. Use Expo Go to run it on an
-Android phone, or run the same interface in a web browser with Expo's web
-target. Expo Go is a mobile app; web development runs in a browser using
-React Native Web. Use Node.js 24.3+ LTS (or another version supported by the
-Expo SDK) and npm.
-
-Start the backend in one terminal from the repository root:
-
-```powershell
-python -m src.api.main
-```
-
-Start the app in another terminal:
-
-```powershell
-cd mobile
+Set-Location mobile
 npm install
+npm run typecheck
 npm run start
 ```
 
-Install Expo Go from Google Play and scan the development QR code with Expo Go
-to use a physical Android phone. To launch an installed Android emulator
-instead, use `npm run android`. To run the browser version:
+Install Expo Go from Google Play and scan the QR code to open the app. For an
+Android emulator, use `npm run android`. To run the same client in a browser,
+use `npm run web`.
 
-```powershell
-npm run web
-```
-
-The app defaults to `http://10.0.2.2:8000` on Android (the Android Emulator's
-host-machine address) and `http://127.0.0.1:8000` on web. For a physical phone,
-copy `mobile/.env.example` to `mobile/.env`, set `EXPO_PUBLIC_API_URL` to the
-computer's LAN IPv4 address, restart Expo, and keep the phone and computer on
-the same trusted Wi-Fi network. For example:
+To use a physical phone, copy `mobile\.env.example` to `mobile\.env` and set
+`EXPO_PUBLIC_API_URL` to the computer's private LAN IPv4 address:
 
 ```dotenv
 EXPO_PUBLIC_API_URL=http://192.168.1.23:8000
 ```
 
-The backend binds to all network interfaces so a phone on the LAN can reach it.
-Allow Python through Windows Firewall on a **private network** if prompted.
-This demo API has no authentication; do not expose it to the public internet
-or an untrusted network. Browser requests from localhost are allowed by
-default. If the web app is served from another origin, configure its exact
-origin with `CORS_ORIGINS` before starting the backend (for example,
-`$env:CORS_ORIGINS = "http://192.168.1.23:8081"`). Expo Go's native requests
-do not use browser CORS.
+Restart Expo after changing `.env`. Keep the phone and computer on the same
+trusted Wi-Fi network and allow Python through Windows Firewall on a private
+network if prompted. The app requests foreground location permission when you
+choose **Use this device's current location**.
 
-The screen includes route endpoints, manual weather inputs, quicker/balanced/
-safer priority choices, and route results. Its location choices and route data
-are illustrative, matching the backend's small synthetic network. Real GPS,
-maps, live weather, and 511 events are not connected yet.
+For browser testing from another device, also set the backend's exact browser
+origin before starting it, for example:
 
-## Prototype API
+```powershell
+$env:CORS_ORIGINS = "http://192.168.1.23:8081"
+python -m src.api.main
+```
+
+### Use for a trip
+
+Search for or select the start and destination, or use the device's current
+location for the start. Select **Plan road route** to preview the road
+distance, estimated duration, and current weather at each endpoint. Select
+**Open driving directions in Google Maps** to hand off the trip.
+
+The app's API address defaults to the Android emulator host (`10.0.2.2`) or
+the local web host (`127.0.0.1`). A physical phone must use the computer's LAN
+address as described above. If the phone leaves that network, it can no longer
+reach a locally running API. **For use away from the development network, the
+API and routing service need to be deployed on an internet-accessible host
+with HTTPS and appropriate access controls.** This repository does not include
+that production deployment; do not expose the development API or OSRM port
+directly to the public internet.
+
+## API
 
 ### `GET /health`
 
 Returns `{"status":"healthy"}`.
 
+### `GET /geocode?query=Waterloo%2C%20Ontario`
+
+Searches for up to five place matches. Requires a query of at least three
+characters. Results include labels and coordinates.
+
 ### `POST /route`
 
-Coordinates are snapped to the nearest node in the demo graph. Each endpoint
-must be within 3 km of a demo node. `safety_weight` ranges from `0` (optimize
-for estimated travel time) to `1` (give weather-related road risk more weight).
-Weather fields default to zero.
+Requests a real driving route and current weather at its endpoints:
 
 ```json
 {
   "origin_lat": 43.4643,
   "origin_lon": -80.5204,
-  "dest_lat": 43.449,
-  "dest_lon": -80.475,
-  "safety_weight": 0.7,
-  "weather": {
-    "snowfall_cm_per_hour": 4,
-    "wind_kmh": 50,
-    "temperature_c": -5
-  }
+  "dest_lat": 44.5011,
+  "dest_lon": -80.2169
 }
 ```
 
-The response contains the selected route's node coordinates, baseline travel
-time, distance, average road-risk score, weather severity, and generalized
-routing cost. The baseline travel time does not model traffic or winter
-slowdowns. Invalid requests return HTTP 400; coordinates outside the demo
-coverage return HTTP 422.
+The response includes OSRM route geometry, estimated distance and duration,
+OpenStreetMap attribution, and either current Open-Meteo conditions at both
+endpoints or an explicit weather-unavailable status. A routing-service failure
+returns an error; it never silently substitutes demo route data. These
+estimates are not live-traffic estimates.
 
-## Project outline
+### `POST /demo/route`
 
-### Phase 1 — Working local prototype
+Runs the earlier five-node synthetic Waterloo demonstration graph. It is only
+for local development and tests; it is not used by the app's real `/route`
+request.
 
-- [x] Define a small, synthetic directed road graph around Waterloo.
-- [x] Find nearest graph nodes for submitted coordinates.
-- [x] Compare route costs with Dijkstra's algorithm.
-- [x] Blend estimated travel time with road risk and weather severity.
-- [x] Provide health and route endpoints over local HTTP.
-- [x] Cover routing and API behavior with standard-library unit tests.
+## Data sources and attribution
 
-### Phase 2 — Real road network
+- **Road network:** [OpenStreetMap](https://www.openstreetmap.org/) data
+  distributed by [Geofabrik](https://download.geofabrik.de/north-america/canada/ontario.html).
+  OpenStreetMap data is available under the Open Database License (ODbL);
+  retain attribution and review the license obligations for your intended use.
+- **Place search and weather:** [Open-Meteo](https://open-meteo.com/). Review
+  its current API terms, attribution requirements, and usage limits before
+  public or commercial deployment.
+- **Turn-by-turn directions:** Google Maps, opened separately by the app.
+  Google Maps recalculates the route and supplies its own navigation data.
 
-- Replace the synthetic graph with an OpenStreetMap road network using OSMnx.
-- Choose a bounded study area and persist downloaded graph data locally.
-- Derive road attributes such as length, road class, surface, and speed where
-  available; document how missing or estimated attributes are handled.
-- Add geographic data validation and tests before using external datasets.
+The road graph is a dated extract, not a live roadworks/closure feed. Refresh
+the extract periodically using the current Geofabrik file and rerun the OSRM
+preparation steps. The current setup processes all of Ontario; it may need a
+larger machine than the app/backend itself.
 
-### Phase 3 — Weather and road events
+## Project status
 
-- Add a weather provider adapter for Environment and Climate Change Canada.
-- Add an Ontario 511 provider adapter for active road events; keep API keys and
-  other credentials out of source control.
-- Define event freshness, geographic matching, units, and behavior when a
-  provider is unavailable.
-- Keep the local synthetic-data mode available for offline development.
-
-### Phase 4 — Risk model and routing quality
-
-- Calibrate risk inputs and the time-versus-safety trade-off against documented
-  assumptions and suitable historical data.
-- Add elevation/slope and collision-history features only after sourcing and
-  validating those datasets.
-- Compare routes using measurable outcomes, including travel time, distance,
-  risk score, and route changes under different weather.
-- Make the limitations and intended use of each risk score explicit.
-
-### Phase 5 — Client and deployment
-
-- [x] Add an Android-first Expo Go app and browser-based Expo web client.
-- [ ] Add a map UI and route comparison visualization.
-- Add persistence, caching, observability, and deployment configuration when
-  the data and service requirements are known.
-- Reassess API framework, authentication, rate limits, and operational safety
-  before exposing the service beyond localhost.
-
-## Planned data sources
-
-| Data | Candidate source | Current status |
-| --- | --- | --- |
-| Road network | OpenStreetMap via OSMnx or a regional BBBike extract | Planned; not used by the prototype |
-| Municipal roads | City of Waterloo Open Data / ArcGIS REST | Planned; check the service's current URL, fields, and license before use |
-| Road events | Ontario 511 | Planned; confirm current API access and credential requirements |
-| Weather | Environment and Climate Change Canada | Planned; provider adapter not yet implemented |
-| Elevation | NASA SRTM or another appropriately licensed elevation source | Later phase |
-| Collision history | City of Waterloo or another authorized data provider | Requires sourcing and access review |
-
-Do not assume downloaded data is current, complete, or licensed for every use.
-Record source, retrieval time, coordinate reference system, and license when
-real datasets are introduced.
-
-## Later geospatial environment
-
-The prototype itself has no external dependencies. When Phase 2 begins, create
-a separate Conda environment and install the compiled geospatial packages
-together from conda-forge to reduce binary dependency conflicts:
-
-```powershell
-conda create -n winter-routing python=3.12 -y
-conda activate winter-routing
-conda install -c conda-forge geopandas osmnx rasterio fiona pyproj shapely networkx -y
-conda env export --from-history > environment.yml
-```
-
-Recreate that environment with `conda env create -f environment.yml`. Add
-weather, API, and machine-learning dependencies only when their respective
-phases are implemented; the current local API intentionally uses the standard
-library.
+- [x] Android-first Expo Go app and browser client.
+- [x] Current-device location and place search.
+- [x] Real road-route API backed by self-hosted OSRM and Ontario OSM data.
+- [x] Current endpoint weather from Open-Meteo with explicit unavailable state.
+- [x] Google Maps driving-directions handoff.
+- [ ] Dedicated regional extract and automated road-data refresh.
+- [ ] Ontario 511 incident/closure integration.
+- [ ] Weather-aware alternative-route scoring with validated data and testing.
+- [ ] Secure, monitored HTTPS deployment for use outside the local network.
+- [ ] Operational validation before any safety-related claims.
 
 ## Repository layout
 
 ```text
 SmartRoadRouter/
 ├── mobile/                 # Expo Go Android app and Expo web client
-│   ├── App.tsx
-│   ├── app.json
-│   └── package.json
+├── routing/
+│   └── osrm/
+│       ├── compose.yaml
+│       └── prepare.ps1
 ├── src/
 │   ├── api/
-│   │   └── main.py
+│   │   ├── main.py         # HTTP API
+│   │   └── providers.py    # OSRM and Open-Meteo clients
 │   └── routing/
-│       └── engine.py
+│       └── engine.py       # Synthetic demo route only
 ├── tests/
-│   └── test_routing.py
-├── py-version.py        # Earlier OSMnx experiment; not required by the prototype
 └── README.md
 ```
 
 ## Troubleshooting
 
-- **`py` is not recognized:** Install Python 3.11+ and enable the Python
-  launcher, or use the full path to the installed Python executable.
-- **Virtual environment activation is blocked:** Use the venv's
-  `Scripts\python.exe` directly as shown above; changing the machine's script
-  execution policy is not required.
-- **Port 8000 is in use:** Set another port before starting the server, for
-  example `$env:PORT = "8001"; python -m src.api.main`.
-- **Route request returns HTTP 422:** The demo only covers a small area around
-  the included Waterloo nodes. A real regional road network is a later phase.
-- **An older script reports missing OSMnx/NetworkX/Matplotlib/Folium:** Those
-  packages are not needed by this prototype; see the later geospatial setup
-  above if working on the earlier OSMnx experiment.
+- **OSRM returns an error or `/route` responds with 503:** Check that OSRM is
+  running with `docker compose -f routing/osrm/compose.yaml ps`, and that the
+  route service responds at `http://127.0.0.1:5000`. The API does not switch to
+  demo data.
+- **Route returns 422:** The coordinates may not snap to a drivable road in
+  the Ontario extract, or no route may connect them.
+- **Place search or weather unavailable:** Check internet access. The app
+  reports provider failure; weather is never filled in with synthetic values.
+- **The phone cannot reach the API:** Use the computer's current private LAN
+  address in `mobile\.env`, check the same Wi-Fi network, and allow Python
+  through the private-network firewall.
+- **Location is denied:** Enter a starting place through search or allow
+  foreground location access in Android settings.
+- **PowerShell activation is blocked:** Run the virtual environment's
+  `Scripts\python.exe` directly; changing the global execution policy is not
+  required.

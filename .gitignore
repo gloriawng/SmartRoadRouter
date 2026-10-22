@@ -140,6 +140,7 @@ celerybeat.pid
 .venv
 node_modules/
 .expo/
+routing/osrm/data/
 env/
 venv/
 ENV/

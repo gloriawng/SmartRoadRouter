@@ -6,6 +6,14 @@
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "scheme": "smartroadrouter",
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow SmartRoadRouter to use your location to plan a trip."
+        }
+      ]
+    ],
     "android": {
       "package": "com.smartroadrouter.app"
     },

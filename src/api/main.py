@@ -6,8 +6,15 @@ import json
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
+from src.api.providers import (
+    NoRoadRouteError,
+    ProviderError,
+    get_weather,
+    route_driving,
+    search_places,
+)
 from src.routing.engine import (
     LocationOutsideDemoError,
     NoRouteError,
@@ -23,8 +30,30 @@ class RouterRequestHandler(BaseHTTPRequestHandler):
         if not self._origin_is_allowed():
             self._send_json(403, {"error": "Origin is not allowed."})
             return
-        if self.path == "/health":
+        parsed_path = urlsplit(self.path)
+        if parsed_path.path == "/health":
             self._send_json(200, {"status": "healthy"})
+            return
+        if parsed_path.path == "/geocode":
+            query = parse_qs(parsed_path.query, keep_blank_values=True).get(
+                "query", [""]
+            )[0]
+            try:
+                places = search_places(query)
+            except ValueError as error:
+                self._send_json(400, {"error": str(error)})
+                return
+            except ProviderError as error:
+                self._send_json(502, {"error": str(error)})
+                return
+            self._send_json(
+                200,
+                {
+                    "provider": "Open-Meteo Geocoding",
+                    "attribution": "Location search provided by Open-Meteo.",
+                    "places": places,
+                },
+            )
             return
         self._send_json(404, {"error": "Not found."})
 
@@ -40,7 +69,7 @@ class RouterRequestHandler(BaseHTTPRequestHandler):
         if not self._origin_is_allowed():
             self._send_json(403, {"error": "Origin is not allowed."})
             return
-        if self.path != "/route":
+        if self.path not in {"/route", "/demo/route"}:
             self._send_json(404, {"error": "Not found."})
             return
 
@@ -60,17 +89,52 @@ class RouterRequestHandler(BaseHTTPRequestHandler):
         try:
             payload = json.loads(self.rfile.read(request_size))
             route_request = RouteRequest.from_payload(payload)
-            result = find_route(route_request)
         except (json.JSONDecodeError, UnicodeDecodeError) as error:
             self._send_json(400, {"error": f"Invalid JSON: {error}"})
             return
-        except LocationOutsideDemoError as error:
-            self._send_json(422, {"error": str(error)})
-            return
-        except (NoRouteError, ValueError) as error:
+        except ValueError as error:
             self._send_json(400, {"error": str(error)})
             return
 
+        if self.path == "/demo/route":
+            try:
+                result = find_route(route_request)
+            except LocationOutsideDemoError as error:
+                self._send_json(422, {"error": str(error)})
+                return
+            except NoRouteError as error:
+                self._send_json(400, {"error": str(error)})
+                return
+            self._send_json(200, result)
+            return
+
+        try:
+            route = route_driving(
+                (route_request.origin_lat, route_request.origin_lon),
+                (route_request.dest_lat, route_request.dest_lon),
+            )
+        except NoRoadRouteError as error:
+            self._send_json(422, {"error": str(error)})
+            return
+        except ProviderError as error:
+            self._send_json(503, {"error": str(error)})
+            return
+
+        weather: dict[str, object]
+        try:
+            weather = {
+                "status": "available",
+                "origin": get_weather(
+                    route_request.origin_lat, route_request.origin_lon
+                ),
+                "destination": get_weather(
+                    route_request.dest_lat, route_request.dest_lon
+                ),
+            }
+        except ProviderError as error:
+            weather = {"status": "unavailable", "error": str(error)}
+
+        result = {"route": route, "weather": weather}
         self._send_json(200, result)
 
     def _send_json(self, status: int, payload: dict[str, Any]) -> None:
